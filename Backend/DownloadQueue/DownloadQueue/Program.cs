@@ -29,6 +29,8 @@ string failedFile = Path.Combine(queuePath, "failed.txt");
 
 var urlQueue = new BlockingCollection<string>();
 var retryCounter = new Dictionary<string, int>();
+int pendingCounter = 0;
+DateTime lastPendingTime = DateTime.UtcNow;
 
 // Ausstehende URLs beim Start einlesen
 if (!File.Exists(pendingFile)) File.WriteAllText(pendingFile, string.Empty);
@@ -58,6 +60,40 @@ foreach (var line in File.ReadAllLines(pendingFile))
 var listener = new HttpListener();
 listener.Prefixes.Add("http://localhost:5050/queue/");
 listener.Start();
+
+_ = Task.Run(async () =>
+{
+    while (true)
+    {
+        await Task.Delay(1000);
+
+        if (pendingCounter > 0 && (DateTime.UtcNow - lastPendingTime).TotalSeconds > 3)
+        {
+            try
+            {
+                new Process()
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "powershell",
+                        Arguments = $"-NoProfile -Command \"[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null; $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText01); $template.GetElementsByTagName('text').Item(0).AppendChild($template.CreateTextNode('Sisyphus: {pendingCounter} URL(s) empfangen')) > $null; $toast = [Windows.UI.Notifications.ToastNotification]::new($template); [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('SisyphusService').Show($toast)\"",
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    }
+                }.Start();
+            }
+            catch (Exception toastEx)
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine($"[Hinweis] Toast konnte nicht angezeigt werden: {toastEx.Message}");
+                Console.ResetColor();
+            }
+
+            pendingCounter = 0;
+        }
+    }
+});
+
 
 Console.ForegroundColor = ConsoleColor.Green;
 Console.WriteLine("Sisyphus-Service läuft auf http://localhost:5050/queue");
@@ -225,28 +261,11 @@ while (true)
             var url = json.Url.Trim();
             if (!File.ReadAllLines(pendingFile).Contains(url))
             {
+                pendingCounter++;
+                lastPendingTime = DateTime.UtcNow;
+
                 File.AppendAllText(pendingFile, url + Environment.NewLine);
 
-                // Windows-Toast anzeigen
-                try
-                {
-                    new Process()
-                    {
-                        StartInfo = new ProcessStartInfo
-                        {
-                            FileName = "powershell",
-                            Arguments = "-NoProfile -Command \"[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null; $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText01); $template.GetElementsByTagName('text').Item(0).AppendChild($template.CreateTextNode('Sisyphus: URL empfangen')) > $null; $toast = [Windows.UI.Notifications.ToastNotification]::new($template); [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('SisyphusService').Show($toast)\"",
-                            UseShellExecute = false,
-                            CreateNoWindow = true
-                        }
-                    }.Start();
-                }
-                catch (Exception toastEx)
-                {
-                    Console.ForegroundColor = ConsoleColor.DarkGray;
-                    Console.WriteLine($"[Hinweis] Toast konnte nicht angezeigt werden: {toastEx.Message}");
-                    Console.ResetColor();
-                }
                 urlQueue.Add(url);
                 Console.ForegroundColor = ConsoleColor.Magenta;
                 Console.WriteLine($"URL empfangen: {url}");
