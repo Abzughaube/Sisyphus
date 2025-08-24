@@ -149,18 +149,26 @@ _ = Task.Run(() =>
                 }
             };
 
+            var errorText = new StringBuilder();
             proc!.ErrorDataReceived += (s, e) =>
             {
                 if (e.Data != null)
                 {
                     Console.Error.WriteLine(e.Data);
+                    errorText.AppendLine(e.Data);
                 }
             };
 
             proc.BeginOutputReadLine();
             proc.BeginErrorReadLine();
-
             proc.WaitForExit();
+
+            bool alreadyDownloaded = errorText.ToString().Contains("has already been downloaded", StringComparison.OrdinalIgnoreCase);
+
+            if (proc.ExitCode != 0 && !alreadyDownloaded)
+            {
+                throw new Exception($"yt-dlp Fehlercode {proc.ExitCode}");
+            }
 
             Console.WriteLine();
             Console.ForegroundColor = ConsoleColor.Cyan;
