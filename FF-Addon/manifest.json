@@ -1,0 +1,19 @@
+{
+  "manifest_version": 2,
+  "name": "Sisyphus Downloader",
+  "version": "1.0",
+  "description": "Sendet aktuelle Tab-URL an lokalen yt-dlp-Service.",
+  "permissions": ["activeTab", "tabs"],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "browser_action": {
+	"default_title": "Send URL to Sisyphus",
+	  "default_icon": {
+		"16": "icons/icon16.png",
+		"32": "icons/icon32.png",
+		"48": "icons/icon48.png",
+		"128": "icons/icon128.png"
+	  }
+  }
+}
