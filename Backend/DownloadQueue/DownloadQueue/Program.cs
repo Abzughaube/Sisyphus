@@ -16,7 +16,7 @@ var config = configRoot.GetSection("Sisyphus").Get<Config>();
 
 if (config == null || string.IsNullOrWhiteSpace(config.DownloadPath))
 {
-    Console.Error.WriteLine("Konfiguration ungültig oder fehlt. Bitte 'appsettings.json' überprüfen.");
+    WriteColored(ConsoleColor.Red, "Konfiguration ungültig oder fehlt. Bitte 'appsettings.json' überprüfen.", isError: true);
     return;
 }
 
@@ -84,9 +84,7 @@ _ = Task.Run(async () =>
             }
             catch (Exception toastEx)
             {
-                Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.WriteLine($"[Hinweis] Toast konnte nicht angezeigt werden: {toastEx.Message}");
-                Console.ResetColor();
+                WriteColored(ConsoleColor.DarkGray, $"[Hinweis] Toast konnte nicht angezeigt werden: {toastEx.Message}");
             }
 
             pendingCounter = 0;
@@ -95,12 +93,8 @@ _ = Task.Run(async () =>
 });
 
 
-Console.ForegroundColor = ConsoleColor.Green;
-Console.WriteLine("Sisyphus-Service läuft auf http://localhost:5050/queue");
-Console.ResetColor();
-Console.ForegroundColor = ConsoleColor.Green;
-Console.WriteLine($"Zielverzeichnis: {config.DownloadPath}");
-Console.ResetColor();
+WriteColored(ConsoleColor.Green, "Sisyphus-Service läuft auf http://localhost:5050/queue");
+WriteColored(ConsoleColor.Green, $"Zielverzeichnis: {config.DownloadPath}");
 
 // Hintergrund-Worker zur Verarbeitung der Queue
 _ = Task.Run(() =>
@@ -114,9 +108,7 @@ _ = Task.Run(() =>
         var videoUrl = urlQueue.Take();
         retryCounter.TryGetValue(videoUrl, out int currentRetries);
 
-        Console.ForegroundColor = ConsoleColor.Cyan;
-        Console.WriteLine($"Starte Download: {videoUrl}");
-        Console.ResetColor();
+        WriteColored(ConsoleColor.Cyan, $"Starte Download: {videoUrl}");
 
         try
         {
@@ -143,6 +135,7 @@ _ = Task.Run(() =>
                     }
                     else
                     {
+                        Console.ResetColor();
                         Console.WriteLine();
                         Console.WriteLine(e.Data);
                     }
@@ -171,13 +164,9 @@ _ = Task.Run(() =>
             }
 
             Console.WriteLine();
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine($"Download beendet: {videoUrl}");
-            Console.ResetColor();
+            WriteColored(ConsoleColor.Cyan, $"Download beendet: {videoUrl}");
 
-            Console.ForegroundColor = ConsoleColor.DarkYellow;
-            Console.WriteLine($"Noch ausstehend: {urlQueue.Count}");
-            Console.ResetColor();
+            WriteColored(ConsoleColor.DarkYellow, $"Noch ausstehend: {urlQueue.Count}");
 
             // Erfolgreicher Download, also globalen Fehlerzähler zurücksetzen
             consecutiveFailures = 0;
@@ -197,35 +186,30 @@ _ = Task.Run(() =>
             consecutiveFailures++;
             if (consecutiveFailures >= maxConsecutiveFailures)
             {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"Zu viele aufeinanderfolgende Fehler ({consecutiveFailures}). Verarbeitung wird angehalten.");
-                Console.WriteLine("Bitte überprüfen Sie die Verbindung oder die Seite und starten Sie den Service neu.");
-                Console.ResetColor();
+                WriteColored(ConsoleColor.Red, $"Zu viele aufeinanderfolgende Fehler ({consecutiveFailures}). Verarbeitung wird angehalten.", true);
+                WriteColored(ConsoleColor.Red, "Bitte überprüfen Sie die Verbindung oder die Seite und starten Sie den Service neu.", true);
+                
                 break;
             }
             Console.Error.WriteLine($"Fehler beim Download: {ex.Message}");
-        }
 
-        retryCounter[videoUrl] = currentRetries + 1;
-        if (retryCounter[videoUrl] >= 3)
-        {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"Dauerhafter Fehler. URL in failed.txt verschoben: {videoUrl}");
-            Console.ResetColor();
-            File.AppendAllText(failedFile, videoUrl + Environment.NewLine);
+            retryCounter[videoUrl] = currentRetries + 1;
+            if (retryCounter[videoUrl] >= 3)
+            {
+                WriteColored(ConsoleColor.Red, $"Dauerhafter Fehler. URL in failed.txt verschoben: {videoUrl}");
+                File.AppendAllText(failedFile, videoUrl + Environment.NewLine);
 
-            // Aus pending.txt entfernen
-            var lines = File.ReadAllLines(pendingFile).Where(l => l.Trim() != videoUrl).ToList();
-            File.WriteAllLines(pendingFile, lines);
-            retryCounter.Remove(videoUrl);
-        }
-        else
-        {
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($"Fehlgeschlagen. Versuche erneut ({retryCounter[videoUrl]}/3): {videoUrl}");
-            Console.ResetColor();
-            File.AppendAllText(retryFile, videoUrl + Environment.NewLine);
-            urlQueue.Add(videoUrl);
+                // Aus pending.txt entfernen
+                var lines = File.ReadAllLines(pendingFile).Where(l => l.Trim() != videoUrl).ToList();
+                File.WriteAllLines(pendingFile, lines);
+                retryCounter.Remove(videoUrl);
+            }
+            else
+            {
+                WriteColored(ConsoleColor.Yellow, $"Fehlgeschlagen. Versuche erneut ({retryCounter[videoUrl]}/3): {videoUrl}");
+                File.AppendAllText(retryFile, videoUrl + Environment.NewLine);
+                urlQueue.Add(videoUrl);
+            }
         }
     }
 });
@@ -267,7 +251,7 @@ while (true)
         if (!string.IsNullOrWhiteSpace(json?.Url))
         {
             var url = json.Url.Trim();
-            if (!File.ReadAllLines(pendingFile).Contains(url))
+            if (!File.ReadAllLines(pendingFile).Contains(url) && !File.ReadAllLines(completedFile).Contains(url))
             {
                 pendingCounter++;
                 lastPendingTime = DateTime.UtcNow;
@@ -275,15 +259,11 @@ while (true)
                 File.AppendAllText(pendingFile, url + Environment.NewLine);
 
                 urlQueue.Add(url);
-                Console.ForegroundColor = ConsoleColor.Magenta;
-                Console.WriteLine($"URL empfangen: {url}");
-                Console.ResetColor();
+                WriteColored(ConsoleColor.Magenta, $"URL empfangen: {url}");
             }
             else
             {
-                Console.ForegroundColor = ConsoleColor.Magenta;
-                Console.WriteLine($"URL bereits in Warteschlange: {url}");
-                Console.ResetColor();
+                WriteColored(ConsoleColor.Magenta, $"URL bereits in Warteschlange: {url}");
             }
 
             context.Response.StatusCode = 200;
@@ -302,6 +282,16 @@ while (true)
     {
         context.Response.Close();
     }
+}
+void WriteColored(ConsoleColor color, string message, bool isError = false)
+{
+    var originalColor = Console.ForegroundColor;
+    Console.ForegroundColor = color;
+    if (isError)
+        Console.Error.WriteLine(message);
+    else
+        Console.WriteLine(message);
+    Console.ForegroundColor = originalColor;
 }
 
 record UrlRequest(string Url);
