@@ -39,7 +39,7 @@ if (!File.Exists(retryFile)) File.WriteAllText(retryFile, string.Empty);
 foreach (var line in File.ReadAllLines(pendingFile).Concat(File.ReadAllLines(retryFile)))
 {
     var url = line.Trim();
-    if (!string.IsNullOrWhiteSpace(url))
+    if (!string.IsNullOrWhiteSpace(url) && !url.StartsWith("#"))
     {
         urlQueue.Add(url);
     }
@@ -47,15 +47,6 @@ foreach (var line in File.ReadAllLines(pendingFile).Concat(File.ReadAllLines(ret
 
 // retry.txt leeren (wird bei Fehlschlägen erneut befüllt)
 File.WriteAllText(retryFile, string.Empty);
-
-foreach (var line in File.ReadAllLines(pendingFile))
-{
-    var url = line.Trim();
-    if (!string.IsNullOrWhiteSpace(url))
-    {
-        urlQueue.Add(url);
-    }
-}
 
 var listener = new HttpListener();
 listener.Prefixes.Add("http://localhost:5050/queue/");
