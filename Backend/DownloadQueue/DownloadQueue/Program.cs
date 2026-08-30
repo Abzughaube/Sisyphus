@@ -2,6 +2,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
+using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
@@ -20,12 +21,16 @@ if (config == null || string.IsNullOrWhiteSpace(config.DownloadPath))
     return;
 }
 
+// yt-dlp Version prüfen
+await CheckYtDlpVersionAsync();
+
 string queuePath = Path.Combine(AppContext.BaseDirectory, "queue");
 Directory.CreateDirectory(queuePath);
 string pendingFile = Path.Combine(queuePath, "pending.txt");
 string completedFile = Path.Combine(queuePath, "completed.txt");
 string retryFile = Path.Combine(queuePath, "retry.txt");
 string failedFile = Path.Combine(queuePath, "failed.txt");
+var showConclusionMessage = false;
 
 var urlQueue = new BlockingCollection<string>();
 var retryCounter = new Dictionary<string, int>();
@@ -80,9 +85,32 @@ _ = Task.Run(async () =>
 
             pendingCounter = 0;
         }
+
+        if (urlQueue.Count == 0 && showConclusionMessage)
+        {
+            try
+            {
+                new Process()
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "powershell",
+                        Arguments = $"-NoProfile -Command \"[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null; $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText01); $template.GetElementsByTagName('text').Item(0).AppendChild($template.CreateTextNode('Sisyphus: Downloads abgeschlossen')) > $null; $toast = [Windows.UI.Notifications.ToastNotification]::new($template); [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('SisyphusService').Show($toast)\"",
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    }
+                }.Start();
+
+                showConclusionMessage = false;
+
+            }
+            catch (Exception toastEx)
+            {
+                WriteColored(ConsoleColor.DarkGray, $"[Hinweis] Toast konnte nicht angezeigt werden: {toastEx.Message}");
+            }
+        }
     }
 });
-
 
 WriteColored(ConsoleColor.Green, "Sisyphus-Service läuft auf http://localhost:5050/queue");
 WriteColored(ConsoleColor.Green, $"Zielverzeichnis: {config.DownloadPath}");
@@ -90,7 +118,6 @@ WriteColored(ConsoleColor.Green, $"Zielverzeichnis: {config.DownloadPath}");
 // Hintergrund-Worker zur Verarbeitung der Queue
 _ = Task.Run(() =>
 {
-    // Fehlerzähler für globale Fehler (z. B. Netzwerk)
     int consecutiveFailures = 0;
     const int maxConsecutiveFailures = 3;
 
@@ -115,7 +142,6 @@ _ = Task.Run(() =>
 
             using var proc = Process.Start(psi);
 
-            // Fortschrittszeile in-place ausgeben
             proc!.OutputDataReceived += (s, e) =>
             {
                 if (e.Data != null)
@@ -159,18 +185,17 @@ _ = Task.Run(() =>
 
             WriteColored(ConsoleColor.DarkYellow, $"Noch ausstehend: {urlQueue.Count}");
 
-            // Erfolgreicher Download, also globalen Fehlerzähler zurücksetzen
             consecutiveFailures = 0;
-
-            // Retry-Zähler löschen
             retryCounter.Remove(videoUrl);
 
-            // Erfolgreich abgeschlossen → in completed.txt eintragen
             File.AppendAllText(completedFile, videoUrl + Environment.NewLine);
-
-            // Aus pending.txt entfernen
             var lines = File.ReadAllLines(pendingFile).Where(l => l.Trim() != videoUrl).ToList();
             File.WriteAllLines(pendingFile, lines);
+
+            if (urlQueue.Count == 0)
+            {
+                showConclusionMessage = true;
+            }
         }
         catch (Exception ex)
         {
@@ -179,7 +204,6 @@ _ = Task.Run(() =>
             {
                 WriteColored(ConsoleColor.Red, $"Zu viele aufeinanderfolgende Fehler ({consecutiveFailures}). Verarbeitung wird angehalten.", true);
                 WriteColored(ConsoleColor.Red, "Bitte überprüfen Sie die Verbindung oder die Seite und starten Sie den Service neu.", true);
-                
                 break;
             }
             Console.Error.WriteLine($"Fehler beim Download: {ex.Message}");
@@ -189,8 +213,6 @@ _ = Task.Run(() =>
             {
                 WriteColored(ConsoleColor.Red, $"Dauerhafter Fehler. URL in failed.txt verschoben: {videoUrl}");
                 File.AppendAllText(failedFile, videoUrl + Environment.NewLine);
-
-                // Aus pending.txt entfernen
                 var lines = File.ReadAllLines(pendingFile).Where(l => l.Trim() != videoUrl).ToList();
                 File.WriteAllLines(pendingFile, lines);
                 retryCounter.Remove(videoUrl);
@@ -210,12 +232,10 @@ while (true)
 {
     var context = await listener.GetContextAsync();
 
-    // CORS Header setzen
     context.Response.AddHeader("Access-Control-Allow-Origin", "*");
     context.Response.AddHeader("Access-Control-Allow-Headers", "Content-Type");
     context.Response.AddHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
 
-    // OPTIONS-Request (Preflight) direkt beantworten
     if (context.Request.HttpMethod == "OPTIONS")
     {
         context.Response.StatusCode = 200;
@@ -242,7 +262,15 @@ while (true)
         if (!string.IsNullOrWhiteSpace(json?.Url))
         {
             var url = json.Url.Trim();
-            if (!File.ReadAllLines(pendingFile).Contains(url) && !File.ReadAllLines(completedFile).Contains(url))
+            if (File.ReadAllLines(pendingFile).Contains(url))
+            {
+                WriteColored(ConsoleColor.Magenta, $"URL bereits in Warteschlange: {url}");
+            }
+            else if (File.ReadAllLines(completedFile).Contains(url))
+            {
+                WriteColored(ConsoleColor.Magenta, $"URL bereits früher heruntergeladen: {url}");
+            }
+            else
             {
                 pendingCounter++;
                 lastPendingTime = DateTime.UtcNow;
@@ -251,10 +279,6 @@ while (true)
 
                 urlQueue.Add(url);
                 WriteColored(ConsoleColor.Magenta, $"URL empfangen: {url}");
-            }
-            else
-            {
-                WriteColored(ConsoleColor.Magenta, $"URL bereits in Warteschlange: {url}");
             }
 
             context.Response.StatusCode = 200;
@@ -274,6 +298,44 @@ while (true)
         context.Response.Close();
     }
 }
+
+async Task CheckYtDlpVersionAsync()
+{
+    try
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "yt-dlp",
+            Arguments = "--version",
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        using var proc = Process.Start(psi);
+        string installedVersion = await proc!.StandardOutput.ReadToEndAsync();
+        proc.WaitForExit();
+
+        installedVersion = installedVersion.Trim();
+
+        using var client = new HttpClient();
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("SisyphusService/1.0");
+        var response = await client.GetStringAsync("https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest");
+
+        var json = JsonDocument.Parse(response);
+        var latestVersion = json.RootElement.GetProperty("tag_name").GetString()?.Trim();
+
+        if (!string.IsNullOrWhiteSpace(latestVersion) && latestVersion != installedVersion)
+        {
+            WriteColored(ConsoleColor.Yellow, $"Hinweis: Neue yt-dlp-Version verfügbar: {latestVersion} (Installiert: {installedVersion})");
+        }
+    }
+    catch (Exception ex)
+    {
+        WriteColored(ConsoleColor.DarkGray, $"[Hinweis] Konnte yt-dlp-Version nicht prüfen: {ex.Message}");
+    }
+}
+
 void WriteColored(ConsoleColor color, string message, bool isError = false)
 {
     var originalColor = Console.ForegroundColor;
