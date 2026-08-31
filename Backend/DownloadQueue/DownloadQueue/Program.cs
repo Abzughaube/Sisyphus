@@ -27,12 +27,7 @@ if (config == null || string.IsNullOrWhiteSpace(config.DownloadPath))
 // yt-dlp Version prüfen
 await versionChecker.CheckAsync();
 
-string queuePath = Path.Combine(AppContext.BaseDirectory, "queue");
-Directory.CreateDirectory(queuePath);
-string pendingFile = Path.Combine(queuePath, "pending.txt");
-string completedFile = Path.Combine(queuePath, "completed.txt");
-string retryFile = Path.Combine(queuePath, "retry.txt");
-string failedFile = Path.Combine(queuePath, "failed.txt");
+var queueRepository = new QueueRepository(AppContext.BaseDirectory);
 var showConclusionMessage = false;
 
 var urlQueue = new BlockingCollection<string>();
@@ -40,22 +35,12 @@ var retryCounter = new Dictionary<string, int>();
 int pendingCounter = 0;
 DateTime lastPendingTime = DateTime.UtcNow;
 
-// Ausstehende URLs beim Start einlesen
-if (!File.Exists(pendingFile)) File.WriteAllText(pendingFile, string.Empty);
-if (!File.Exists(retryFile)) File.WriteAllText(retryFile, string.Empty);
-if (!File.Exists(completedFile)) File.WriteAllText(completedFile, string.Empty);
-
-foreach (var line in File.ReadAllLines(pendingFile).Concat(File.ReadAllLines(retryFile)))
+foreach (var url in queueRepository.LoadPendingAndRetryUrls())
 {
-    var url = line.Trim();
-    if (!string.IsNullOrWhiteSpace(url) && !url.StartsWith("#"))
-    {
-        urlQueue.Add(url);
-    }
+    urlQueue.Add(url);
 }
 
-// retry.txt leeren (wird bei Fehlschlägen erneut befüllt)
-File.WriteAllText(retryFile, string.Empty);
+queueRepository.ClearRetry();
 
 var listener = new HttpListener();
 listener.Prefixes.Add("http://localhost:5050/queue/");
@@ -158,9 +143,7 @@ _ = Task.Run(() =>
             consecutiveFailures = 0;
             retryCounter.Remove(videoUrl);
 
-            File.AppendAllText(completedFile, videoUrl + Environment.NewLine);
-            var lines = File.ReadAllLines(pendingFile).Where(l => l.Trim() != videoUrl).ToList();
-            File.WriteAllLines(pendingFile, lines);
+            queueRepository.MarkCompleted(videoUrl);
 
             if (urlQueue.Count == 0)
             {
@@ -182,15 +165,13 @@ _ = Task.Run(() =>
             if (retryCounter[videoUrl] >= 3)
             {
                 logger.Write(ConsoleColor.Red, $"Dauerhafter Fehler. URL in failed.txt verschoben: {videoUrl}");
-                File.AppendAllText(failedFile, videoUrl + Environment.NewLine);
-                var lines = File.ReadAllLines(pendingFile).Where(l => l.Trim() != videoUrl).ToList();
-                File.WriteAllLines(pendingFile, lines);
+                queueRepository.MarkFailed(videoUrl);
                 retryCounter.Remove(videoUrl);
             }
             else
             {
                 logger.Write(ConsoleColor.Yellow, $"Fehlgeschlagen. Versuche erneut ({retryCounter[videoUrl]}/3): {videoUrl}");
-                File.AppendAllText(retryFile, videoUrl + Environment.NewLine);
+                queueRepository.MarkForRetry(videoUrl);
                 urlQueue.Add(videoUrl);
             }
         }
@@ -232,11 +213,11 @@ while (true)
         if (!string.IsNullOrWhiteSpace(json?.Url))
         {
             var url = json.Url.Trim();
-            if (File.ReadAllLines(pendingFile).Contains(url))
+            if (queueRepository.IsPending(url))
             {
                 logger.Write(ConsoleColor.Magenta, $"URL bereits in Warteschlange: {url}");
             }
-            else if (File.ReadAllLines(completedFile).Contains(url))
+            else if (queueRepository.IsCompleted(url))
             {
                 logger.Write(ConsoleColor.Magenta, $"URL bereits früher heruntergeladen: {url}");
             }
@@ -245,7 +226,7 @@ while (true)
                 pendingCounter++;
                 lastPendingTime = DateTime.UtcNow;
 
-                File.AppendAllText(pendingFile, url + Environment.NewLine);
+                queueRepository.AddPending(url);
 
                 urlQueue.Add(url);
                 logger.Write(ConsoleColor.Magenta, $"URL empfangen: {url}");
