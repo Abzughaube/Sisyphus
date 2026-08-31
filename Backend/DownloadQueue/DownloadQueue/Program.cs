@@ -42,6 +42,7 @@ DateTime lastPendingTime = DateTime.UtcNow;
 // Ausstehende URLs beim Start einlesen
 if (!File.Exists(pendingFile)) File.WriteAllText(pendingFile, string.Empty);
 if (!File.Exists(retryFile)) File.WriteAllText(retryFile, string.Empty);
+if (!File.Exists(completedFile)) File.WriteAllText(completedFile, string.Empty);
 
 foreach (var line in File.ReadAllLines(pendingFile).Concat(File.ReadAllLines(retryFile)))
 {
