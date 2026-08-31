@@ -1,7 +1,5 @@
 ﻿using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Net;
-using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 
@@ -18,6 +16,7 @@ var logger = new ConsoleLogger();
 
 var toastNotifier = new ToastNotifier(logger);
 var versionChecker = new YtDlpVersionChecker(logger);
+var ytDlpRunner = new YtDlpRunner(config.DownloadPath);
 if (config == null || string.IsNullOrWhiteSpace(config.DownloadPath))
 {
     logger.WriteError(ConsoleColor.Red, "Konfiguration ungültig oder fehlt. Bitte 'appsettings.json' überprüfen.");
@@ -85,54 +84,12 @@ _ = Task.Run(() =>
 
         try
         {
-            var psi = new ProcessStartInfo
+            var downloadResult = ytDlpRunner.Run(videoUrl);
+
+            if (downloadResult.Status == DownloadStatus.Failed)
             {
-                FileName = "yt-dlp",
-                Arguments = $"--output \"{Path.Combine(config.DownloadPath, "%(title)s.%(ext)s")}\" \"{videoUrl}\"",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            using var proc = Process.Start(psi);
-
-            proc!.OutputDataReceived += (s, e) =>
-            {
-                if (e.Data != null)
-                {
-                    if (e.Data.Contains("[download]"))
-                    {
-                        Console.Write("\r" + e.Data.PadRight(Console.WindowWidth - 1));
-                    }
-                    else
-                    {
-                        Console.ResetColor();
-                        Console.WriteLine();
-                        Console.WriteLine(e.Data);
-                    }
-                }
-            };
-
-            var errorText = new StringBuilder();
-            proc!.ErrorDataReceived += (s, e) =>
-            {
-                if (e.Data != null)
-                {
-                    Console.Error.WriteLine(e.Data);
-                    errorText.AppendLine(e.Data);
-                }
-            };
-
-            proc.BeginOutputReadLine();
-            proc.BeginErrorReadLine();
-            proc.WaitForExit();
-
-            bool alreadyDownloaded = errorText.ToString().Contains("has already been downloaded", StringComparison.OrdinalIgnoreCase);
-
-            if (proc.ExitCode != 0 && !alreadyDownloaded)
-            {
-                throw new Exception($"yt-dlp Fehlercode {proc.ExitCode}");
+                throw new Exception(
+                    $"yt-dlp Fehlercode {downloadResult.ExitCode}");
             }
 
             Console.WriteLine();
