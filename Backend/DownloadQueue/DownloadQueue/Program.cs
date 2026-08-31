@@ -17,6 +17,7 @@ var logger = new ConsoleLogger();
 
 
 var toastNotifier = new ToastNotifier(logger);
+var versionChecker = new YtDlpVersionChecker(logger);
 if (config == null || string.IsNullOrWhiteSpace(config.DownloadPath))
 {
     logger.WriteError(ConsoleColor.Red, "Konfiguration ungültig oder fehlt. Bitte 'appsettings.json' überprüfen.");
@@ -24,7 +25,7 @@ if (config == null || string.IsNullOrWhiteSpace(config.DownloadPath))
 }
 
 // yt-dlp Version prüfen
-await CheckYtDlpVersionAsync();
+await versionChecker.CheckAsync();
 
 string queuePath = Path.Combine(AppContext.BaseDirectory, "queue");
 Directory.CreateDirectory(queuePath);
@@ -268,42 +269,6 @@ while (true)
     }
 }
 
-async Task CheckYtDlpVersionAsync()
-{
-    try
-    {
-        var psi = new ProcessStartInfo
-        {
-            FileName = "yt-dlp",
-            Arguments = "--version",
-            RedirectStandardOutput = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        using var proc = Process.Start(psi);
-        string installedVersion = await proc!.StandardOutput.ReadToEndAsync();
-        proc.WaitForExit();
-
-        installedVersion = installedVersion.Trim();
-
-        using var client = new HttpClient();
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("SisyphusService/1.0");
-        var response = await client.GetStringAsync("https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest");
-
-        var json = JsonDocument.Parse(response);
-        var latestVersion = json.RootElement.GetProperty("tag_name").GetString()?.Trim();
-
-        if (!string.IsNullOrWhiteSpace(latestVersion) && latestVersion != installedVersion)
-        {
-            logger.Write(ConsoleColor.Yellow, $"Hinweis: Neue yt-dlp-Version verfügbar: {latestVersion} (Installiert: {installedVersion})");
-        }
-    }
-    catch (Exception ex)
-    {
-        logger.Write(ConsoleColor.DarkGray, $"[Hinweis] Konnte yt-dlp-Version nicht prüfen: {ex.Message}");
-    }
-}
 
 record UrlRequest(string Url);
 
