@@ -1,4 +1,6 @@
-﻿internal enum DownloadStatus
+﻿namespace Sisyphus.Backend.Downloads;
+
+internal enum DownloadStatus
 {
     Success,
     AlreadyDownloaded,

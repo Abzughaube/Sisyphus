@@ -1,6 +1,8 @@
 ﻿using System.Diagnostics;
 using System.Text;
 
+namespace Sisyphus.Backend.Downloads;
+
 internal sealed class YtDlpRunner
 {
     private readonly string _downloadPath;

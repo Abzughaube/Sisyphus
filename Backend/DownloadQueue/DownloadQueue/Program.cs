@@ -2,6 +2,11 @@
 using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
+using Sisyphus.Backend.ConsoleUi;
+using Sisyphus.Backend.Downloads;
+using Sisyphus.Backend.Notifications;
+using Sisyphus.Backend.Queue;
+using Sisyphus.Backend.Updates;
 
 // Konfiguration laden
 var configRoot = new ConfigurationBuilder()

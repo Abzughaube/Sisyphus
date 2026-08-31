@@ -1,5 +1,8 @@
-﻿using System.Diagnostics;
+﻿using Sisyphus.Backend.ConsoleUi;
+using System.Diagnostics;
 using System.Text.Json;
+
+namespace Sisyphus.Backend.Updates;
 
 internal sealed class YtDlpVersionChecker
 {

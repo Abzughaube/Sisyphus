@@ -1,4 +1,6 @@
-﻿internal sealed class QueueRepository
+﻿namespace Sisyphus.Backend.Queue; 
+
+internal sealed class QueueRepository
 {
     private readonly string _pendingFile;
     private readonly string _completedFile;

@@ -1,4 +1,6 @@
-﻿internal sealed class ConsoleLogger
+﻿namespace Sisyphus.Backend.ConsoleUi;
+
+internal sealed class ConsoleLogger
 {
     public void Write(ConsoleColor color, string message)
     {

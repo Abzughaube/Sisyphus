@@ -1,4 +1,7 @@
-﻿using System.Diagnostics;
+﻿using Sisyphus.Backend.ConsoleUi;
+using System.Diagnostics;
+
+namespace Sisyphus.Backend.Notifications;
 
 internal sealed class ToastNotifier
 {
