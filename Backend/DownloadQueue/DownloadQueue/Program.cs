@@ -1,8 +1,6 @@
-﻿using System;
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
-using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
@@ -15,9 +13,11 @@ var configRoot = new ConfigurationBuilder()
 
 var config = configRoot.GetSection("Sisyphus").Get<Config>();
 
+var logger = new ConsoleLogger();
+
 if (config == null || string.IsNullOrWhiteSpace(config.DownloadPath))
 {
-    WriteColored(ConsoleColor.Red, "Konfiguration ungültig oder fehlt. Bitte 'appsettings.json' überprüfen.", isError: true);
+    logger.WriteError(ConsoleColor.Red, "Konfiguration ungültig oder fehlt. Bitte 'appsettings.json' überprüfen.");
     return;
 }
 
@@ -80,7 +80,7 @@ _ = Task.Run(async () =>
             }
             catch (Exception toastEx)
             {
-                WriteColored(ConsoleColor.DarkGray, $"[Hinweis] Toast konnte nicht angezeigt werden: {toastEx.Message}");
+                logger.Write(ConsoleColor.DarkGray, $"[Hinweis] Toast konnte nicht angezeigt werden: {toastEx.Message}");
             }
 
             pendingCounter = 0;
@@ -106,14 +106,14 @@ _ = Task.Run(async () =>
             }
             catch (Exception toastEx)
             {
-                WriteColored(ConsoleColor.DarkGray, $"[Hinweis] Toast konnte nicht angezeigt werden: {toastEx.Message}");
+                logger.Write(ConsoleColor.DarkGray, $"[Hinweis] Toast konnte nicht angezeigt werden: {toastEx.Message}");
             }
         }
     }
 });
 
-WriteColored(ConsoleColor.Green, "Sisyphus-Service läuft auf http://localhost:5050/queue");
-WriteColored(ConsoleColor.Green, $"Zielverzeichnis: {config.DownloadPath}");
+logger.Write(ConsoleColor.Green, "Sisyphus-Service läuft auf http://localhost:5050/queue");
+logger.Write(ConsoleColor.Green, $"Zielverzeichnis: {config.DownloadPath}");
 
 // Hintergrund-Worker zur Verarbeitung der Queue
 _ = Task.Run(() =>
@@ -126,7 +126,7 @@ _ = Task.Run(() =>
         var videoUrl = urlQueue.Take();
         retryCounter.TryGetValue(videoUrl, out int currentRetries);
 
-        WriteColored(ConsoleColor.Cyan, $"Starte Download: {videoUrl}");
+        logger.Write(ConsoleColor.Cyan, $"Starte Download: {videoUrl}");
 
         try
         {
@@ -181,9 +181,9 @@ _ = Task.Run(() =>
             }
 
             Console.WriteLine();
-            WriteColored(ConsoleColor.Cyan, $"Download beendet: {videoUrl}");
+            logger.Write(ConsoleColor.Cyan, $"Download beendet: {videoUrl}");
 
-            WriteColored(ConsoleColor.DarkYellow, $"Noch ausstehend: {urlQueue.Count}");
+            logger.Write(ConsoleColor.DarkYellow, $"Noch ausstehend: {urlQueue.Count}");
 
             consecutiveFailures = 0;
             retryCounter.Remove(videoUrl);
@@ -202,16 +202,16 @@ _ = Task.Run(() =>
             consecutiveFailures++;
             if (consecutiveFailures >= maxConsecutiveFailures)
             {
-                WriteColored(ConsoleColor.Red, $"Zu viele aufeinanderfolgende Fehler ({consecutiveFailures}). Verarbeitung wird angehalten.", true);
-                WriteColored(ConsoleColor.Red, "Bitte überprüfen Sie die Verbindung oder die Seite und starten Sie den Service neu.", true);
+                logger.WriteError(ConsoleColor.Red, $"Zu viele aufeinanderfolgende Fehler ({consecutiveFailures}). Verarbeitung wird angehalten.");
+                logger.WriteError(ConsoleColor.Red, "Bitte überprüfen Sie die Verbindung oder die Seite und starten Sie den Service neu.");
                 break;
             }
-            Console.Error.WriteLine($"Fehler beim Download: {ex.Message}");
+            logger.WriteError(ConsoleColor.Red, $"Fehler beim Download: {ex.Message}");
 
             retryCounter[videoUrl] = currentRetries + 1;
             if (retryCounter[videoUrl] >= 3)
             {
-                WriteColored(ConsoleColor.Red, $"Dauerhafter Fehler. URL in failed.txt verschoben: {videoUrl}");
+                logger.Write(ConsoleColor.Red, $"Dauerhafter Fehler. URL in failed.txt verschoben: {videoUrl}");
                 File.AppendAllText(failedFile, videoUrl + Environment.NewLine);
                 var lines = File.ReadAllLines(pendingFile).Where(l => l.Trim() != videoUrl).ToList();
                 File.WriteAllLines(pendingFile, lines);
@@ -219,7 +219,7 @@ _ = Task.Run(() =>
             }
             else
             {
-                WriteColored(ConsoleColor.Yellow, $"Fehlgeschlagen. Versuche erneut ({retryCounter[videoUrl]}/3): {videoUrl}");
+                logger.Write(ConsoleColor.Yellow, $"Fehlgeschlagen. Versuche erneut ({retryCounter[videoUrl]}/3): {videoUrl}");
                 File.AppendAllText(retryFile, videoUrl + Environment.NewLine);
                 urlQueue.Add(videoUrl);
             }
@@ -264,11 +264,11 @@ while (true)
             var url = json.Url.Trim();
             if (File.ReadAllLines(pendingFile).Contains(url))
             {
-                WriteColored(ConsoleColor.Magenta, $"URL bereits in Warteschlange: {url}");
+                logger.Write(ConsoleColor.Magenta, $"URL bereits in Warteschlange: {url}");
             }
             else if (File.ReadAllLines(completedFile).Contains(url))
             {
-                WriteColored(ConsoleColor.Magenta, $"URL bereits früher heruntergeladen: {url}");
+                logger.Write(ConsoleColor.Magenta, $"URL bereits früher heruntergeladen: {url}");
             }
             else
             {
@@ -278,7 +278,7 @@ while (true)
                 File.AppendAllText(pendingFile, url + Environment.NewLine);
 
                 urlQueue.Add(url);
-                WriteColored(ConsoleColor.Magenta, $"URL empfangen: {url}");
+                logger.Write(ConsoleColor.Magenta, $"URL empfangen: {url}");
             }
 
             context.Response.StatusCode = 200;
@@ -290,7 +290,7 @@ while (true)
     }
     catch (Exception ex)
     {
-        Console.Error.WriteLine($"Fehler beim Empfangen: {ex.Message}");
+        logger.WriteError(ConsoleColor.Red, $"Fehler beim Empfangen: {ex.Message}");
         context.Response.StatusCode = 500;
     }
     finally
@@ -327,24 +327,13 @@ async Task CheckYtDlpVersionAsync()
 
         if (!string.IsNullOrWhiteSpace(latestVersion) && latestVersion != installedVersion)
         {
-            WriteColored(ConsoleColor.Yellow, $"Hinweis: Neue yt-dlp-Version verfügbar: {latestVersion} (Installiert: {installedVersion})");
+            logger.Write(ConsoleColor.Yellow, $"Hinweis: Neue yt-dlp-Version verfügbar: {latestVersion} (Installiert: {installedVersion})");
         }
     }
     catch (Exception ex)
     {
-        WriteColored(ConsoleColor.DarkGray, $"[Hinweis] Konnte yt-dlp-Version nicht prüfen: {ex.Message}");
+        logger.Write(ConsoleColor.DarkGray, $"[Hinweis] Konnte yt-dlp-Version nicht prüfen: {ex.Message}");
     }
-}
-
-void WriteColored(ConsoleColor color, string message, bool isError = false)
-{
-    var originalColor = Console.ForegroundColor;
-    Console.ForegroundColor = color;
-    if (isError)
-        Console.Error.WriteLine(message);
-    else
-        Console.WriteLine(message);
-    Console.ForegroundColor = originalColor;
 }
 
 record UrlRequest(string Url);
