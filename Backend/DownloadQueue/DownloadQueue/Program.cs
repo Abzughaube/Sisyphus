@@ -15,6 +15,8 @@ var config = configRoot.GetSection("Sisyphus").Get<Config>();
 
 var logger = new ConsoleLogger();
 
+
+var toastNotifier = new ToastNotifier(logger);
 if (config == null || string.IsNullOrWhiteSpace(config.DownloadPath))
 {
     logger.WriteError(ConsoleColor.Red, "Konfiguration ungültig oder fehlt. Bitte 'appsettings.json' überprüfen.");
@@ -65,49 +67,15 @@ _ = Task.Run(async () =>
 
         if (pendingCounter > 0 && (DateTime.UtcNow - lastPendingTime).TotalSeconds > 3)
         {
-            try
-            {
-                new Process()
-                {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = "powershell",
-                        Arguments = $"-NoProfile -Command \"[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null; $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText01); $template.GetElementsByTagName('text').Item(0).AppendChild($template.CreateTextNode('Sisyphus: {pendingCounter} URL(s) empfangen')) > $null; $toast = [Windows.UI.Notifications.ToastNotification]::new($template); [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('SisyphusService').Show($toast)\"",
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    }
-                }.Start();
-            }
-            catch (Exception toastEx)
-            {
-                logger.Write(ConsoleColor.DarkGray, $"[Hinweis] Toast konnte nicht angezeigt werden: {toastEx.Message}");
-            }
+            toastNotifier.Show($"Sisyphus: {pendingCounter} URL(s) empfangen");
 
             pendingCounter = 0;
         }
 
         if (urlQueue.Count == 0 && showConclusionMessage)
         {
-            try
-            {
-                new Process()
-                {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = "powershell",
-                        Arguments = $"-NoProfile -Command \"[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null; $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText01); $template.GetElementsByTagName('text').Item(0).AppendChild($template.CreateTextNode('Sisyphus: Downloads abgeschlossen')) > $null; $toast = [Windows.UI.Notifications.ToastNotification]::new($template); [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('SisyphusService').Show($toast)\"",
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    }
-                }.Start();
-
-                showConclusionMessage = false;
-
-            }
-            catch (Exception toastEx)
-            {
-                logger.Write(ConsoleColor.DarkGray, $"[Hinweis] Toast konnte nicht angezeigt werden: {toastEx.Message}");
-            }
+            toastNotifier.Show("Sisyphus: Downloads abgeschlossen");
+            showConclusionMessage = false;
         }
     }
 });
