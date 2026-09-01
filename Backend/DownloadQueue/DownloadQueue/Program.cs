@@ -19,12 +19,13 @@ var logger = new ConsoleLogger();
 
 var toastNotifier = new ToastNotifier(logger);
 var versionChecker = new YtDlpVersionChecker(logger);
-var ytDlpRunner = new YtDlpRunner(config.DownloadPath);
 if (config == null || string.IsNullOrWhiteSpace(config.DownloadPath))
 {
     logger.WriteError(ConsoleColor.Red, "Konfiguration ungültig oder fehlt. Bitte 'appsettings.json' überprüfen.");
     return;
 }
+
+var ytDlpRunner = new YtDlpRunner(config.DownloadPath);
 
 // yt-dlp Version prüfen
 await versionChecker.CheckAsync();
@@ -82,3 +83,8 @@ var urlReceiver = new UrlReceiver(
     });
 
 await urlReceiver.RunAsync();
+
+record Config
+{
+    public string DownloadPath { get; init; } = string.Empty;
+}
