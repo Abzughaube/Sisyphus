@@ -31,44 +31,21 @@ var ytDlpRunner = new YtDlpRunner(config.DownloadPath);
 await versionChecker.CheckAsync();
 
 var queueRepository = new QueueRepository(AppContext.BaseDirectory);
-var showConclusionMessage = false;
+var notificationService = new QueueNotificationService(toastNotifier);
 
 var downloadWorker = new DownloadWorker(
     queueRepository,
     ytDlpRunner,
     logger);
 
-int pendingCounter = 0;
-DateTime lastPendingTime = DateTime.UtcNow;
-
 downloadWorker.LoadPersistedQueue();
-
-_ = Task.Run(async () =>
-{
-    while (true)
-    {
-        await Task.Delay(1000);
-
-        if (pendingCounter > 0 && (DateTime.UtcNow - lastPendingTime).TotalSeconds > 3)
-        {
-            toastNotifier.Show($"Sisyphus: {pendingCounter} URL(s) empfangen");
-
-            pendingCounter = 0;
-        }
-
-        if (downloadWorker.PendingCount == 0 && showConclusionMessage)
-        {
-            toastNotifier.Show("Sisyphus: Downloads abgeschlossen");
-            showConclusionMessage = false;
-        }
-    }
-});
+notificationService.Start();
 
 logger.Write(ConsoleColor.Green, "Sisyphus-Service läuft auf http://localhost:5050/queue");
 logger.Write(ConsoleColor.Green, $"Zielverzeichnis: {config.DownloadPath}");
 
 // Hintergrund-Worker zur Verarbeitung der Queue
-downloadWorker.QueueDrained += () => showConclusionMessage = true;
+downloadWorker.QueueDrained += notificationService.QueueDrained;
 downloadWorker.Start();
 
 // HTTP-Endpunkt für Browser-Addon
@@ -76,11 +53,7 @@ var urlReceiver = new UrlReceiver(
     queueRepository,
     downloadWorker,
     logger,
-    () =>
-    {
-        pendingCounter++;
-        lastPendingTime = DateTime.UtcNow;
-    });
+    notificationService.UrlAdded);
 
 await urlReceiver.RunAsync();
 
